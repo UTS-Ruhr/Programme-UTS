@@ -1,0 +1,55 @@
+name: Windows-Build (Rechnungsscanner .exe)
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tesseract-OCR installieren (fuer den Bundle)
+        run: choco install tesseract --params "/InstallDir:C:\tesseract" -y
+        shell: pwsh
+
+      - name: Deutsches und englisches Sprachpaket sicherstellen
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\tesseract\tessdata" | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/deu.traineddata" -OutFile "C:\tesseract\tessdata\deu.traineddata"
+          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata" -OutFile "C:\tesseract\tessdata\eng.traineddata"
+        shell: pwsh
+
+      - name: Tesseract-Ordner fuer den Bundle vorbereiten
+        run: |
+          New-Item -ItemType Directory -Force -Path "vendor" | Out-Null
+          Copy-Item -Path "C:\tesseract" -Destination "vendor\tesseract" -Recurse
+        shell: pwsh
+
+      - name: Python-Abhaengigkeiten installieren
+        run: pip install -r requirements-dev.txt
+        shell: pwsh
+
+      - name: .exe bauen (inkl. eingebautem Tesseract)
+        run: pyinstaller rechnungsscanner.spec
+        shell: pwsh
+
+      - name: Tests ausfuehren
+        run: pytest
+        shell: pwsh
+
+      - name: Build als Download bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rechnungsscanner-Windows
+          path: dist/Rechnungsscanner/
+          retention-days: 30

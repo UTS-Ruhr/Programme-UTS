@@ -1,9 +1,12 @@
 """Wandelt gescannte Rechnungen (PDF/JPG/PNG) per OCR in Text um."""
 
+import os
 from pathlib import Path
 
 import pytesseract
 from PIL import Image
+
+from . import config as cfg
 
 PDF_SUFFIXES = {".pdf"}
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
@@ -19,6 +22,13 @@ class OcrError(RuntimeError):
 def configure_tesseract(tesseract_path: str) -> None:
     if tesseract_path:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
+    # Bei eingebauter Tesseract-Kopie (fertige .exe) das mitgelieferte
+    # tessdata-Verzeichnis explizit bekanntgeben, statt auf die
+    # Standard-Pfadsuche von Tesseract zu vertrauen.
+    bundled = cfg.bundled_tesseract_dir()
+    if bundled:
+        os.environ["TESSDATA_PREFIX"] = str(bundled / "tessdata")
 
 
 def extract_text(file_path: str, language: str = "deu") -> str:

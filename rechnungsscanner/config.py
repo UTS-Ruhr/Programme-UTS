@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 
 APP_NAME = "RechnungsScanner"
@@ -23,7 +24,22 @@ def _config_file() -> Path:
     return _config_dir() / "config.json"
 
 
+def bundled_tesseract_dir() -> Path | None:
+    """Ordner mit der in die .exe eingebauten Tesseract-Kopie, falls vorhanden.
+
+    PyInstaller entpackt Onedir-Builds neben die .exe (sys._MEIPASS zeigt dann
+    auf den Programmordner, nicht auf einen temporären Ordner).
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    candidate = Path(sys._MEIPASS) / "tesseract"
+    return candidate if (candidate / "tesseract.exe").exists() else None
+
+
 def guess_tesseract_path() -> str:
+    bundled = bundled_tesseract_dir()
+    if bundled:
+        return str(bundled / "tesseract.exe")
     for candidate in DEFAULT_TESSERACT_PATHS:
         if Path(candidate).exists():
             return candidate

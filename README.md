@@ -19,7 +19,21 @@ USt-IdNr/Steuernummer, Verarbeitungsdatum.
 4. Nach Bestätigung wird die Rechnung als neue Zeile in die Excel-Datei
    geschrieben (Datei wird beim ersten Mal automatisch mit Kopfzeile angelegt).
 
-## Voraussetzungen
+## Fertige .exe herunterladen (kein Python, kein Tesseract-Setup nötig)
+
+Bei jedem Push baut die GitHub-Actions-Pipeline
+(`.github/workflows/build-windows.yml`) automatisch eine fertige,
+in sich geschlossene Windows-Anwendung mit eingebauter Tesseract-Kopie:
+
+1. Im GitHub-Repository auf **Actions** → Workflow **"Windows-Build
+   (Rechnungsscanner .exe)"** gehen.
+2. Den neuesten (grünen) Lauf öffnen.
+3. Unter **Artifacts** die Datei **Rechnungsscanner-Windows** herunterladen
+   und entpacken.
+4. `Rechnungsscanner.exe` doppelklicken – fertig, keine weitere Installation
+   nötig.
+
+## Voraussetzungen (nur für den Start aus dem Quellcode)
 
 - Python 3.10 oder neuer (https://www.python.org/downloads/)
 - Tesseract-OCR für Windows, inkl. deutschem Sprachpaket:
@@ -45,7 +59,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-## Als eigenständige .exe bauen
+## Als eigenständige .exe bauen (manuell, ohne GitHub Actions)
 
 ```bash
 pip install -r requirements-dev.txt
@@ -53,8 +67,9 @@ pyinstaller rechnungsscanner.spec
 ```
 
 Die fertige Anwendung liegt danach unter `dist\Rechnungsscanner\Rechnungsscanner.exe`.
-Tesseract-OCR muss auf dem Zielrechner weiterhin separat installiert sein
-(wird aus Lizenz- und Größengründen nicht mitgebaut).
+Wird der Build lokal ausgeführt (ohne den `vendor\tesseract`-Ordner, den nur
+die GitHub-Actions-Pipeline anlegt), muss Tesseract-OCR auf dem Zielrechner
+weiterhin separat installiert sein.
 
 ## Einstellungen
 
