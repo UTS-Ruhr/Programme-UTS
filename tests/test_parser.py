@@ -62,3 +62,50 @@ def test_missing_fields_are_none_or_empty():
     assert data["IBAN"] == ""
     assert data["Nettobetrag"] is None
     assert data["Rechnungsdatum"] is None
+
+
+# Nachgebauter OCR-Text einer echten Speditions-Sammelrechnung (DACHSER-Layout):
+# Betraege stehen in Tabellenspalten statt in "Label: Wert"-Zeilen, und es gibt
+# zwei IBANs (SEPA-Lastschrift-Mandat + tatsaechliche Bankverbindung).
+TABLE_INVOICE = """
+DACHSER SE
+Logistikzentrum Hamburg
+
+Umformtechnik Stade GmbH
+Ohle Kamp 12
+21684 Stade
+
+SUMMENRECHNUNG NATIONAL EINGANG
+Datum: 01.07.2026 Rechnungs-Nr.: 0040495258 Kunden-Nr.: 47156531
+
+Zeilennr Datum Anzahl Sendungen Gew.(kg) Netto EUR Steuer
+001 29.06.2026 1 220 108,96 A
+220 108,96
+
+Steuer Netto EUR % USt Steuercode Steuerbetrag EUR Brutto EUR
+A 108,96 19,000 DE 20,70 129,66
+129,66
+
+Rechnungen sind sofort fällig.
+
+Der Rechnungsbetrag wird am 15.07.2026 von Ihrem Konto eingezogen.
+IBAN: DE82241510051210234298
+BIC: NOLADE21STS
+
+Bankverbindung: HypoVereinsbank Hamburg, Konto 4402699
+IBAN: DE41 2003 0000 0004 4026 99 BIC: HYVEDEMM300
+"""
+
+
+def test_table_style_invoice_extracts_amounts_and_correct_iban():
+    data = parse_invoice_text(TABLE_INVOICE, filename="dachser.pdf")
+
+    assert data["Unternehmensname"] == "DACHSER SE"
+    assert data["Rechnungsnummer"] == "0040495258"
+    assert data["Rechnungsdatum"] == date(2026, 7, 1)
+    assert data["Bruttobetrag"] == 129.66
+    assert data["Nettobetrag"] == 108.96
+    assert data["MwSt-Betrag"] == 20.70
+    assert data["IBAN"] == "DE41 2003 0000 0004 4026 99"
+    assert data["BIC"] == "HYVEDEMM300"
+    assert data["Zahlungsziel"] == date(2026, 7, 1)
