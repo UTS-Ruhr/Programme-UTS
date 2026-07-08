@@ -19,32 +19,59 @@ jobs:
           python-version: "3.11"
 
       - name: Tesseract-OCR installieren (fuer den Bundle)
-        run: choco install tesseract --params "/InstallDir:C:\tesseract" -y
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install tesseract -y
         shell: pwsh
 
-      - name: Deutsches und englisches Sprachpaket sicherstellen
+      - name: Tesseract-Ordner lokalisieren und fuer den Bundle vorbereiten
         run: |
-          New-Item -ItemType Directory -Force -Path "C:\tesseract\tessdata" | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/deu.traineddata" -OutFile "C:\tesseract\tessdata\deu.traineddata"
-          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata" -OutFile "C:\tesseract\tessdata\eng.traineddata"
-        shell: pwsh
+          $ErrorActionPreference = "Stop"
 
-      - name: Tesseract-Ordner fuer den Bundle vorbereiten
-        run: |
+          $tesseractDir = "C:\Program Files\Tesseract-OCR"
+          if (-not (Test-Path "$tesseractDir\tesseract.exe")) {
+            $cmd = Get-Command tesseract.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $tesseractDir = Split-Path $cmd.Source }
+          }
+          if (-not (Test-Path "$tesseractDir\tesseract.exe")) {
+            Write-Error "tesseract.exe wurde nach der Choco-Installation nirgends gefunden."
+          }
+          Write-Host "Tesseract gefunden unter: $tesseractDir"
+
           New-Item -ItemType Directory -Force -Path "vendor" | Out-Null
-          Copy-Item -Path "C:\tesseract" -Destination "vendor\tesseract" -Recurse
+          Copy-Item -Path $tesseractDir -Destination "vendor\tesseract" -Recurse
+
+          # Deutsches Sprachpaket sicherstellen (Choco-Paket bringt nur Englisch mit).
+          New-Item -ItemType Directory -Force -Path "vendor\tesseract\tessdata" | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/deu.traineddata" -OutFile "vendor\tesseract\tessdata\deu.traineddata"
         shell: pwsh
 
       - name: Python-Abhaengigkeiten installieren
-        run: pip install -r requirements-dev.txt
+        run: |
+          $ErrorActionPreference = "Stop"
+          pip install -r requirements-dev.txt
         shell: pwsh
 
       - name: .exe bauen (inkl. eingebautem Tesseract)
-        run: pyinstaller rechnungsscanner.spec
+        run: |
+          $ErrorActionPreference = "Stop"
+          pyinstaller rechnungsscanner.spec
+        shell: pwsh
+
+      - name: Eingebettetes Tesseract im Build pruefen
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundled = Get-ChildItem -Path "dist\Rechnungsscanner" -Recurse -Filter "tesseract.exe" -ErrorAction SilentlyContinue
+          if (-not $bundled) {
+            Write-Error "Build enthaelt kein eingebettetes tesseract.exe - Bundle ist fehlerhaft."
+          }
+          Write-Host "Eingebettetes Tesseract im Build gefunden: $($bundled.FullName)"
         shell: pwsh
 
       - name: Tests ausfuehren
-        run: pytest
+        run: |
+          $ErrorActionPreference = "Stop"
+          pytest
         shell: pwsh
 
       - name: Build als Download bereitstellen
