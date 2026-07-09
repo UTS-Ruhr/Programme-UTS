@@ -37,6 +37,13 @@ _LEGAL_FORMS = (
     r"\b(?:GmbH & Co\.? ?KG|GmbH|AG|KG|OHG|UG|e\.\s?K\.|GbR|mbH|SE)\b"
 )
 
+# Der eigene Firmenname (Rechnungsempfaenger) taucht auf jeder eingehenden
+# Rechnung ebenfalls auf (Anschriftenfeld) und hat dabei oft eine sauberere
+# OCR-Qualitaet als der - haeufig in Logo-Naehe gedruckte - Absendername.
+# Ohne diesen Ausschluss wird faelschlich der eigene Name statt des
+# tatsaechlichen Rechnungsstellers als "Unternehmensname" erkannt.
+_OWN_COMPANY_HINTS = ("umformtechnik stade", "umformtechnik-stade")
+
 
 def _to_amount(raw: str) -> float | None:
     if not raw:
@@ -91,7 +98,8 @@ def extract_invoice_date(text: str) -> date | None:
 def extract_due_date(text: str, invoice_date: date | None) -> date | None:
     match = _find_labeled(
         text,
-        [r"Zahlungsziel", r"F[äa]llig(?:keitsdatum)?(?:\s*am)?", r"zahlbar\s*bis"],
+        [r"Zahlungsziel", r"Zahlungsbedingung(?:en)?", r"F[äa]llig(?:keitsdatum)?(?:\s*am)?",
+         r"zahlbar\s*bis"],
         _DATE,
     )
     if match:
@@ -112,26 +120,33 @@ def extract_due_date(text: str, invoice_date: date | None) -> date | None:
 
 def _all_amounts(text: str) -> list[float]:
     """Alle im Text vorkommenden Geldbetraege, eindeutig und absteigend sortiert."""
-    values = {
-        amount
-        for m in re.finditer(_AMOUNT, text)
-        if (amount := _to_amount(m.group(1))) is not None
-    }
+    values = set()
+    for m in re.finditer(_AMOUNT, text):
+        # Zahlen wie "50,00 %" (Prozentangaben, z.B. Rabatt- oder USt-Saetze mit
+        # genau 2 Nachkommastellen) sind keine Geldbetraege und werden ignoriert.
+        if re.match(r"\s*%", text[m.end():]):
+            continue
+        amount = _to_amount(m.group(1))
+        if amount is not None:
+            values.add(amount)
     return sorted(values, reverse=True)
 
 
 def extract_amounts(text: str) -> dict:
     net_match = _find_labeled(
-        text, [r"Netto(?:betrag)?", r"Zwischensumme", r"Summe\s*netto"], _AMOUNT
+        text,
+        [r"Netto(?:betrag)?", r"Zwischensumme", r"Summe\s*netto", r"GESAMT\s*Netto"],
+        _AMOUNT,
     )
     vat_match = _find_labeled(
-        text, [r"(?:MwSt|USt|Umsatzsteuer)\.?\s*(?:\d{1,2}\s*%)?", r"Steuerbetrag"],
+        text,
+        [r"(?:MwSt|USt|Umsatzsteuer)\.?\s*(?:\d{1,2}\s*%)?", r"Steuerbetrag", r"Steuer"],
         _AMOUNT,
     )
     gross_match = _find_labeled(
         text,
         [r"Gesamtbetrag", r"Rechnungsbetrag", r"Gesamtsumme", r"Endbetrag",
-         r"Bruttobetrag", r"Summe\s*brutto", r"Zu\s*zahlen"],
+         r"Bruttobetrag", r"Summe\s*brutto", r"Zu\s*zahlen", r"GESAMT\s*Brutto", r"Brutto"],
         _AMOUNT,
     )
 
@@ -190,6 +205,13 @@ def _normalize_iban(raw: str) -> str:
     return " ".join(compact[i : i + 4] for i in range(0, len(compact), 4))
 
 
+# Manche Rechnungen (z.B. Banktabellen mit mehreren Kontoverbindungen) nennen
+# BIC und IBAN direkt hintereinander ohne die Woerter "BIC"/"IBAN" davor -
+# z.B. "BRLADE21BRS DE27 2925 0000 0100 0170 37". Dieses Muster liefert dann
+# beide Werte aus derselben Tabellenzeile.
+_BIC_IBAN_ROW = rf"\b([A-Z]{{6}}[A-Z0-9]{{2}}(?:[A-Z0-9]{{3}})?)\s+{_IBAN_PATTERN}"
+
+
 def extract_iban(text: str) -> str:
     # Manche Rechnungen (z.B. bei SEPA-Lastschrift) nennen zuerst die eigene
     # IBAN des Kunden (Mandatsreferenz) und erst danach, im Abschnitt
@@ -201,10 +223,16 @@ def extract_iban(text: str) -> str:
             return _normalize_iban(match.group(1))
 
     match = re.search(rf"\bIBAN\b\s*[:.\-]?\s*{_IBAN_PATTERN}", text, re.IGNORECASE)
-    if not match:
-        # Ohne "IBAN:"-Label nur echte Grossbuchstaben als Laendercode akzeptieren,
-        # sonst werden zufaellige Wortenden (z.B. "Konto" -> "to") als IBAN erkannt.
-        match = re.search(rf"\b{_IBAN_PATTERN}\b", text)
+    if match:
+        return _normalize_iban(match.group(1))
+
+    match = re.search(_BIC_IBAN_ROW, text)
+    if match:
+        return _normalize_iban(match.group(2))
+
+    # Ohne jegliches Label nur echte Grossbuchstaben als Laendercode akzeptieren,
+    # sonst werden zufaellige Wortenden (z.B. "Konto" -> "to") als IBAN erkannt.
+    match = re.search(rf"\b{_IBAN_PATTERN}\b", text)
     if match:
         return _normalize_iban(match.group(1))
     return ""
@@ -224,6 +252,10 @@ def extract_bic(text: str) -> str:
             return match.group(1).upper()
 
     match = re.search(_BIC_PATTERN, text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+
+    match = re.search(_BIC_IBAN_ROW, text)
     return match.group(1).upper() if match else ""
 
 
@@ -239,10 +271,14 @@ def extract_tax_id(text: str) -> str:
 
 def extract_company_name(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for line in lines[:15]:
+    candidates = [
+        line for line in lines[:15]
+        if not any(hint in line.lower() for hint in _OWN_COMPANY_HINTS)
+    ]
+    for line in candidates:
         if re.search(_LEGAL_FORMS, line):
             return line
-    return lines[0] if lines else ""
+    return candidates[0] if candidates else ""
 
 
 def parse_invoice_text(text: str, filename: str = "") -> dict:

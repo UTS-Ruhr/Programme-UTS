@@ -109,3 +109,56 @@ def test_table_style_invoice_extracts_amounts_and_correct_iban():
     assert data["IBAN"] == "DE41 2003 0000 0004 4026 99"
     assert data["BIC"] == "HYVEDEMM300"
     assert data["Zahlungsziel"] == date(2026, 7, 1)
+
+
+# Nachgebauter OCR-Text einer echten Lieferantenrechnung (VETTER-Layout):
+# eigener Firmenname (Empfaenger) erscheint im Anschriftenfeld ebenfalls mit
+# Rechtsform und darf nicht mit dem Rechnungssteller verwechselt werden;
+# Betraege stehen als "GESAMT Netto/Brutto"/"Steuer" statt Standardlabels;
+# Zahlungsziel steht unter "Zahlungsbedingung"; Bankdaten ohne "IBAN:"/"BIC:"-
+# Label in einer reinen Banktabelle.
+VETTER_INVOICE = """
+VETTER Stahlhandel GmbH
+D-27612 Loxstedt - Fon +49.471.97988.0
+Amtsgericht Tostedt - HRB 204086 - GF: Carsten Vetter
+USt-IdNr.: DE 151 090 109 - Steuer-Nr.: 49 200 10515
+
+Vetter Stahlhandel GmbH - Postfach 10 10 47 - 27510 Bremerhaven
+
+Umformtechnik Stade GmbH
+Ohle Kamp 12
+21684 Stade
+
+Rechnung
+Rechnungs-Nr. : 4334066
+Datum : 30.06.2026
+Kunden-Nr. : 13314
+
+Pos Bezeichnung Anzahl Gewicht Preis Gesamtpreis
+1 Edelstahlblech 1 STK 80,000 KG 3,20 € 256,00 €
+2 Transportschutz 1 STK 20,00 € 10,00 €
+
+Zahlungsbedingung
+13.09.2026 ohne Abzug
+
+GESAMT Netto 266,00 €
++ 19,00% Steuer 50,54 €
+GESAMT Brutto 316,54 €
+
+Weser-Elbe Sparkasse BRLADE21BRS DE27 2925 0000 0100 0170 37
+Stadtsparkasse Cuxhaven BRLADE21CUX DE19 2415 0001 0000 1008 91
+"""
+
+
+def test_recipient_own_company_not_mistaken_for_vendor():
+    data = parse_invoice_text(VETTER_INVOICE, filename="vetter.pdf")
+
+    assert data["Unternehmensname"] == "VETTER Stahlhandel GmbH"
+    assert data["Rechnungsnummer"] == "4334066"
+    assert data["Rechnungsdatum"] == date(2026, 6, 30)
+    assert data["Zahlungsziel"] == date(2026, 9, 13)
+    assert data["Nettobetrag"] == 266.00
+    assert data["MwSt-Betrag"] == 50.54
+    assert data["Bruttobetrag"] == 316.54
+    assert data["IBAN"] == "DE27 2925 0000 0100 0170 37"
+    assert data["BIC"] == "BRLADE21BRS"
